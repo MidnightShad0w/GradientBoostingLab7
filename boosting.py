@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import numpy as np
+from matplotlib import pyplot as plt
 from sklearn.metrics import roc_auc_score
 from sklearn.tree import DecisionTreeRegressor
 
@@ -62,8 +63,25 @@ class Boosting:
         ----------
         Эта функция добавляет новую модель и обновляет ансамбль.
         """
-        self.gammas.append()
-        self.models.append()
+        # self.gammas.append()
+        # self.models.append()
+
+        n_samples = x.shape[0]
+        indices = np.random.choice(n_samples, size=int(self.subsample * n_samples), replace=True)
+        x_bootstrap = x[indices]
+        y_bootstrap = y[indices]
+
+        residuals = -self.loss_derivative(y_bootstrap, predictions[indices])
+
+        model = self.base_model_class(**self.base_model_params)
+        model.fit(x_bootstrap, residuals)
+
+        new_predictions = model.predict(x)
+
+        gamma = self.find_optimal_gamma(y, predictions, new_predictions)
+
+        self.models.append(model)
+        self.gammas.append(gamma)
 
     def fit(self, x_train, y_train, x_valid, y_valid):
         """
@@ -80,15 +98,48 @@ class Boosting:
         y_valid : array-like, форма (n_samples,)
             Массив целевых значений для валидационного набора.
         """
+        # train_predictions = np.zeros(y_train.shape[0])
+        # valid_predictions = np.zeros(y_valid.shape[0])
+        #
+        # for _ in range(self.n_estimators):
+        #     self.fit_new_base_model()
+        #
+        #     if self.early_stopping_rounds is not None:
+        #
+        # if self.plot:
+
         train_predictions = np.zeros(y_train.shape[0])
         valid_predictions = np.zeros(y_valid.shape[0])
 
-        for _ in range(self.n_estimators):
-            self.fit_new_base_model()
+        for i in range(self.n_estimators):
+            self.fit_new_base_model(x_train, y_train, train_predictions)
+
+            train_predictions += self.learning_rate * self.gammas[-1] * self.models[-1].predict(x_train)
+            valid_predictions += self.learning_rate * self.gammas[-1] * self.models[-1].predict(x_valid)
+
+            train_loss = self.loss_fn(y_train, train_predictions)
+            valid_loss = self.loss_fn(y_valid, valid_predictions)
+
+            self.history['train_loss'].append(train_loss)
+            self.history['valid_loss'].append(valid_loss)
+
+            print(
+                f"Iteration {i + 1}/{self.n_estimators}: Train Loss = {train_loss:.4f}, Valid Loss = {valid_loss:.4f}")
 
             if self.early_stopping_rounds is not None:
+                self.validation_loss[i % self.early_stopping_rounds] = valid_loss
+                if i >= self.early_stopping_rounds and valid_loss >= max(self.validation_loss):
+                    print("Early stopping triggered.")
+                    break
 
         if self.plot:
+            plt.plot(self.history['train_loss'], label='Train Loss')
+            plt.plot(self.history['valid_loss'], label='Valid Loss')
+            plt.xlabel('Iterations')
+            plt.ylabel('Loss')
+            plt.title('Training and Validation Loss')
+            plt.legend()
+            plt.show()
 
     def predict_proba(self, x):
         """
@@ -104,8 +155,18 @@ class Boosting:
         probabilities : array-like, форма (n_samples, n_classes)
             Вероятности для каждого класса.
         """
+        # for gamma, model in zip(self.gammas, self.models):
+        #     pass
+
+        predictions = np.zeros(x.shape[0])
+
         for gamma, model in zip(self.gammas, self.models):
-            pass
+            predictions += self.learning_rate * gamma * model.predict(x)
+
+        # probabilities = self.sigmoid(predictions)
+        probabilities_class_1 = self.sigmoid(predictions)
+
+        return np.vstack([1 - probabilities_class_1, probabilities_class_1]).T
 
     def find_optimal_gamma(self, y, old_predictions, new_predictions) -> float:
         """
