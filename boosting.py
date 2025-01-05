@@ -212,4 +212,12 @@ class Boosting:
         ----------
         Важность признаков определяется по вкладу каждого признака в финальную модель.
         """
-        pass
+        importances_sum = np.zeros_like(self.models[0].feature_importances_)
+        for tree in self.models:
+            importances_sum += tree.feature_importances_
+
+        importances_mean = importances_sum / len(self.models)
+        if importances_mean.sum() > 0:
+            importances_mean /= importances_mean.sum()
+
+        return importances_mean
